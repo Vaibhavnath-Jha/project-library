@@ -1,0 +1,6 @@
+Model Accuracy = 93.64% 
+Misclassification Rate = 6.36
+Cluster Standard Deviation = 1.2
+Learning Rate = 1.5
+Epoch = 100
+Time taken: 156.52939677238464 secs

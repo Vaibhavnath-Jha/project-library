@@ -1,0 +1,171 @@
+---
+title: "SARIMA Model"
+author: "Vaibhavnath Jha"
+date: "24 July 2020"
+---
+
+
+```{r}
+library("forecast"); library("ggplot2"); library("readxl"); library(tseries); theme_set(theme_light())
+```
+
+```{r}
+sales_data <- read_excel("GER_retail_sales.xlsx")
+```
+
+```{r}
+library(anomalize)
+
+decomposed = time_decompose(data = sales_data,target = SALES, message = FALSE)
+anomaly = anomalize (data = decomposed,target = remainder)
+series_recomposed = time_recompose(data = anomaly)
+plot_anomalies(data = series_recomposed,time_recomposed = TRUE, ncol = 3, alpha_dots = 0.5)
+```
+
+No anomalies/ outliers were detected. We can proceed with the original data.
+
+```{r}
+sales_ts <- ts(sales_data[,2],start = 2000,frequency = 12)
+sales_train <- window(sales_ts, start=c(2000,1),end=c(2015,12))
+```
+
+```{r}
+autoplot(sales_train) + xlab("Time (in months)") + ylab("Retail sales")
+```
+
+#### The plot straight away shows that there is presence of seasonality and no perticular trend is present. The mean is centered around 42500 and the series is definitely non-stationary
+
+```{r}
+transformed_sales <- log(sales_train)
+ggtsdisplay(transformed_sales)
+```
+
+ACF shows that many lags are insignificant for the exception of Lag 12 and its multiple, that is explainable because of Seasonality.
+
+```{r}
+diff_sales <- diff(transformed_sales,12)
+ggtsdisplay(diff_sales)
+```
+
+```{r}
+ndiffs(diff_sales)
+```
+
+The seasonal differenced series still appear to be non-stationary, and *nidffs* function also tells us to differentiate once more.
+
+```{r}
+diff_sales_again <- diff(diff_sales, 1)
+adf.test(diff_sales_again)
+```
+
+Null Hypothesis is rejected. We can say that now our series is Stationary.We can start our analysis now.
+
+- As of now, I(D) = 1 and I(d) = 1
+
+
+```{r}
+ggtsdisplay(diff_sales_again)
+```
+
+- Significant non-seasonal lags at Lag 1 and 2 in ACF suggests an *MA(2)* model
+- Significant seasonal lag at Lag 12 suggests an *MA(1)* seasonal model
+
+We will try to fit an *ARIMA(0,1,2)(0,1,1)[12]* model
+
+```{r}
+fitArima_012_011 <- Arima(sales_train, order = c(0,1,2), seasonal = c(0,1,1), lambda = 0)
+summary(fitArima_012_011)
+residuals(object = fitArima_012_011) %>% ggtsdisplay(main = "Arima(0,1,2)(0,1,1)[12]", theme = theme_light())
+```
+
+We see that there are significant spikes in ACF and PACF indicating that there are some more terms to be included in the model.
+Specifically Lag 3 is significant in both plots. PACF also has a significant lag at 4.
+
+Next we'll try to fit *ARIMA(1,1,2)(0,1,1)[12]*, as from ACF there's no other susbstantial information.
+
+
+```{r}
+
+fitArima_112_011 <- Arima(sales_train, order = c(1,1,2), seasonal = c(0,1,1), lambda = 0)
+summary(fitArima_112_011)
+residuals(fitArima_112_011) %>% ggtsdisplay(main = "Arima(1,1,2)(0,1,1)[12]", theme = theme_light()) 
+```
+
+- Marginal worse IC values than last model 
+- PACF has two significant lags at 3 and 4, Try fitting *ARIMA(2,1,2)(0,1,1)[12]* model
+- No significant information from ACF
+
+
+```{r}
+
+fitArima_212_011 <- Arima(sales_train, order = c(2,1,2), seasonal = c(0,1,1), lambda = 0, include.constant = TRUE)
+summary(fitArima_212_011)
+residuals(fitArima_212_011) %>% ggtsdisplay(main = "Arima(2,1,2)(0,1,1)[12]", theme = theme_light())
+```
+
+- Better ICs obtained than all models tested previously.
+- There are still some significant spikes, could try fitting *ARIMA(3,1,2)(0,1,1)[12]* or *ARIMA(2,1,3)(0,1,1)[12]*
+
+```{r}
+
+fitArima_312_011 <- Arima(sales_train, order = c(3,1,2), seasonal = c(0,1,1), lambda = 0)
+summary(fitArima_312_011)
+residuals(fitArima_312_011) %>% ggtsdisplay(main = "Arima(3,1,2)(0,1,1)[12]", theme = theme_light())
+```
+
+```{r}
+
+fitArima_213_011 <- Arima(sales_train, order = c(2,1,3), seasonal = c(0,1,1), lambda = 0)
+summary(fitArima_213_011)
+residuals(fitArima_213_011) %>% ggtsdisplay(main = "Arima(2,1,3)(0,1,1)[12]", theme = theme_light())
+```
+
+Both Models *ARIMA(3,1,2)(0,1,1)[12]* and *ARIMA(2,1,3)(0,1,1)[12]* produce marginally worse ICs than previously fitted model.
+
+
+------------------------------------------------------------------------------------------
+
+##### Thus, ***ARIMA(2,1,2)(0,1,1)[12]*** model is the best fit for the data
+
+```{r}
+checkresiduals(fitArima_212_011)
+```
+
+Checking Rolling Forecasts for the model on the hold-out data
+```{r}
+forecastarima <- function(x, h){forecast(x, model=fitArima_212_011, h=h)}
+sales_ts %>% tsCV(forecastfunction = forecastarima, h = 1) %>% window (start=2016) -> testfce
+mean(testfce^2, na.rm = TRUE) %>% sqrt() -> testrmse
+print(testrmse)
+```
+
+```{r}
+forecastSnaive <- function(x, h){forecast(snaive(x), h=h)}
+sales_ts %>% tsCV(forecastfunction = forecastSnaive, h = 1) %>% window (start=2016) -> testfce
+mean(testfce^2, na.rm = TRUE) %>% sqrt() -> testrmse
+print(testrmse)
+```
+
+```{r}
+forecastnaive <- function(x, h){forecast(naive(x), h=h)}
+sales_ts %>% tsCV(forecastfunction = forecastnaive, h = 1) %>% window (start=2016) -> testfce
+mean(testfce^2, na.rm = TRUE) %>% sqrt() -> testrmse
+print(testrmse)
+```
+Since, *RMSE(ARIMA_model) < {RMSE(Naive_model), RMSE (Snaive_model)} * : It is evidence that ARIMA model is a good fit for the data.
+
+------------------------------------------------------------------------------------------------------------------
+
+
+##### Forecasting from April 2020 until December 2020
+```{r, fig.width=12, fig.height=6}
+sales_ts %>% Arima(order=c(2,1,2),seasonal = c(0,1,1),lambda = 0) %>% forecast(h=9) %>% autoplot() + xlab('Year') + ylab('Sales') 
+```
+
+
+
+
+
+
+
+
