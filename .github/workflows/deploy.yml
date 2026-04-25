@@ -14,6 +14,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
     environment:
@@ -27,10 +30,24 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Combine directories
+        run: |
+          # 1. Create a temporary staging folder
+          mkdir _site
+          
+          # 2. Copy the first project into a subfolder named 'ARIMA_Modelling'
+          cp -r ./ARIMA_Modelling/docs/ ./_site/ARIMA_Modelling
+          
+          # 3. Copy the second project into a subfolder named 'Hangman-Game'
+          cp -r ./Hangman-Game/ ./_site/Hangman-Game
+          
+          # 4. Create a basic homepage menu so the root URL doesn't error
+          echo "<h1>Consolidated Project Deployment</h1><ul><li><a href='ARIMA_Modelling/'>ARIMA_Modelling</a></li><li><a href='Hangman-Game/'>Hangman-Game</a></li></ul>" > ./_site/index.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "./ARIMA_Modelling/docs/"
+          path: "./_site"
 
       - name: Deploy to GitHub Pages
         id: deployment
